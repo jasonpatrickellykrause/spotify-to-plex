@@ -1,5 +1,5 @@
 # Both stages share one base, so the builder installs native packages for the runtime's libc
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS node-builder
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS node-builder
 
 ENV NEXT_DOCKER=1
 
@@ -33,7 +33,7 @@ RUN set -e; \
     chmod -R go-w /build
 
 # Runtime: Node.js for the web app and sync worker, Python for the scraper, supervisord for all three
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS production
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS production
 
 # Referenced by the apt layer so a refresh build re-runs the upgrade instead of reusing a cached one
 ARG BUILD_DATE
