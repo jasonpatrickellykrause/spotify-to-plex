@@ -91,8 +91,8 @@ describe('addOrMonitorAlbum', () => {
         expect(adds()).toHaveLength(1);
         expect(adds()[0]?.[0]).toBe('http://lidarr:8686/api/v1/album');
         expect(adds()[0]?.[1]).toMatchObject({ foreignAlbumId: 'rg-1', qualityProfileId: 4, rootFolderPath: '/music', addOptions: { searchForNewAlbum: false }, artist: { monitorNewItems: 'none' } });
-        // The artist's post-add step must keep the requested album monitored, not unmonitor it with the rest
-        expect(adds()[0]?.[1]).toMatchObject({ artist: { addOptions: { monitor: 'none', albumsToMonitor: ['rg-1'] } } });
+        // Monitor "none" makes Lidarr unmonitor the artist; the list keeps only the requested album monitored
+        expect(adds()[0]?.[1]).toMatchObject({ artist: { monitored: true, addOptions: { monitor: 'existing', albumsToMonitor: ['rg-1'] } } });
         expect(putMock.mock.calls[0]?.[1]).toMatchObject({ anyReleaseOk: false, releases: [{ id: 1, monitored: false }, { id: 2, monitored: true }] });
         expect(searches()).toHaveLength(1);
         expect(outcome).toMatchObject({ result: 'added', ok: true });

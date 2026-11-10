@@ -130,8 +130,10 @@ function addRequest(lidarrAlbum: LidarrLookupResult, settings: LidarrAddSettings
             // Unset means All: every album a later refresh finds would come in monitored
             monitorNewItems: "none",
             addOptions: {
-                monitor: "none",
-                // Applied at the end of the artist's first scan, after this album's search: "none" alone would unmonitor it too
+                // Lidarr unmonitors the artist itself when this is "none"; with albumsToMonitor set, the value
+                // only matters if that list is dropped, and "existing" then monitors nothing on a new artist.
+                // The list is applied at the end of the artist's first scan, after this album's search
+                monitor: "existing",
                 albumsToMonitor: [lidarrAlbum.foreignAlbumId],
                 monitored: true,
                 searchForMissingAlbums: false,
