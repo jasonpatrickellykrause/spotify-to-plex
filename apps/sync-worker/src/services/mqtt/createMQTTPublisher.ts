@@ -117,17 +117,17 @@ export function createMQTTPublisher(client: MQTTClient, topicPrefix: string, dis
     };
 
     /**
-   * Remove multiple entities; returns the ids whose clear failed, which the broker may still hold
+   * Remove multiple entities; returns the ids whose clear went through
    */
     const removeEntities = async (itemIds: string[]) => {
-        const failed: string[] = [];
+        const cleared: string[] = [];
 
         for (const itemId of itemIds) {
-            if (!await removeEntity(itemId))
-                failed.push(itemId);
+            if (await removeEntity(itemId))
+                cleared.push(itemId);
         }
 
-        return failed;
+        return cleared;
     };
 
     return {

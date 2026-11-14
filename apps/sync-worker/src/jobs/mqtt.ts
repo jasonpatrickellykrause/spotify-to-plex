@@ -62,6 +62,8 @@ async function runMQTT() {
     console.log('[MQTT] Starting MQTT publish job...');
 
     let client: ReturnType<typeof createMQTTClient> | undefined;
+    // Set once the previous list is read: lists what the broker may still hold, once, however the run ends
+    let saveList: (() => void) | undefined;
 
     // Everything after the start settles the status: a throw above this try left it "running" until the next run
     try {
@@ -106,6 +108,15 @@ async function runMQTT() {
 
         // Process items
         const currentPublished: PublishedItem[] = [];
+        const cleared = new Set<string>();
+        if (!isDryRun) {
+            saveList = () => {
+                saveList = undefined;
+                const held = new Set(findItemsToRemove(previouslyPublished, currentPublished).filter(id => !cleared.has(id)));
+                savePublishedItems([...currentPublished, ...previouslyPublished.filter(item => item?.id && held.has(item.id))]);
+            };
+        }
+
         const categories = new Set<string>();
         let successCount = 0;
         let errorCount = 0;
@@ -123,6 +134,10 @@ async function runMQTT() {
             const item = savedItems[i];
             if (!item?.label)
                 continue;
+
+            // The broker is gone: every item left would only fail on its own
+            if (client && !client.isConnected())
+                throw new Error('Lost the connection to the MQTT broker');
 
             // Update progress
             updateSyncTypeProgress('mqtt', i + 1, savedItems.length);
@@ -243,28 +258,25 @@ async function runMQTT() {
             stateTopic: getCategoriesStateTopic(mqttConfig.topicPrefix),
         };
 
+        if (categories.size > 0 && publisher)
+            await publisher.publishCategories(categoriesArray);
+
         // Cleanup removed entities: one stays listed until its clear goes through, as the broker still holds it
         const toRemove = findItemsToRemove(previouslyPublished, currentPublished);
-        let uncleared = new Set(toRemove);
-        try {
-            if (categories.size > 0 && publisher)
-                await publisher.publishCategories(categoriesArray);
+        if (toRemove.length > 0) {
+            if (isDryRun) {
+                console.log(`[DRY-RUN] Would remove ${toRemove.length} unused entities`);
+            } else if (publisher) {
+                console.log(`[MQTT] Removing ${toRemove.length} unused entities...`);
 
-            if (toRemove.length > 0) {
-                if (isDryRun) {
-                    console.log(`[DRY-RUN] Would remove ${toRemove.length} unused entities`);
-                } else if (publisher) {
-                    console.log(`[MQTT] Removing ${toRemove.length} unused entities...`);
-                    uncleared = new Set(await publisher.removeEntities(toRemove));
-                }
+                for (const id of await publisher.removeEntities(toRemove))
+                    cleared.add(id);
             }
-        } finally {
-            // Saved when a publish above fails too: this run's entities are on the broker already
-            if (!isDryRun)
-                savePublishedItems([...currentPublished, ...previouslyPublished.filter(item => item?.id && uncleared.has(item.id))]);
         }
 
-        // Save or generate manifest
+        saveList?.();
+
+        // Write the dry-run manifest or the summary
         if (isDryRun) {
             // Write dry-run manifest
             writeDryRunManifest(
@@ -289,6 +301,13 @@ async function runMQTT() {
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         console.error(`[MQTT] ERROR: ${message}`);
+        // Lists what this run may have put on the broker; a failed save here leaves the run's own error shown
+        try {
+            saveList?.();
+        } catch (saveError) {
+            console.error(`[MQTT] ERROR: ${saveError instanceof Error ? saveError.message : 'Unknown error'}`);
+        }
+
         errorSyncType('mqtt', message);
         throw error;
     } finally {

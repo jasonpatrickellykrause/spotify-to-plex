@@ -133,11 +133,14 @@ describe('syncMQTT with a real MQTT client', () => {
 
     // mqtt.js would hold a publish the broker never acknowledged for a reconnect that never comes
     it('stops the run when the broker drops mid-run, with the entity it half published listed', async () => {
+        write('spotify_saved_items.json', [saved('kept', 1), saved('fresh', 4), saved('later', 5)]);
+        write('mqtt_published_items.json', [previous('kept'), previous('later')]);
         await startBroker(createStateTopic('fresh', PREFIX));
 
-        await expect(syncMQTT()).rejects.toThrow('Failed to publish categories');
+        await expect(syncMQTT()).rejects.toThrow('Lost the connection to the MQTT broker');
 
         expect(seen).toContain('homeassistant/sensor/spotify_to_plex_item_fresh/config');
-        expect(kept()).toEqual(['kept', 'fresh']);
+        expect(getById).not.toHaveBeenCalledWith(expect.anything(), '/library/metadata/5');
+        expect(kept()).toEqual(['kept', 'fresh', 'later']);
     });
 });

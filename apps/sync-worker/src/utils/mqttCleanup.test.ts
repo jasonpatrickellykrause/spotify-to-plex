@@ -17,6 +17,7 @@ const { PlexItemMissingError } = await import('@spotify-to-plex/plex-music-searc
 const { createEntityId } = await import('../services/mqtt/createEntityId');
 const { createDiscoveryTopic } = await import('../services/mqtt/createDiscoveryTopic');
 const { createStateTopic } = await import('../services/mqtt/createStateTopic');
+const { getCategoriesDiscoveryTopic } = await import('../services/mqtt/getCategoriesDiscoveryTopic');
 const { syncMQTT } = await import('../jobs/mqtt');
 
 let dir: string;
@@ -193,6 +194,20 @@ describe('syncMQTT cleanup', () => {
         await expect(syncMQTT()).rejects.toThrow('Failed to save published items');
 
         expect(kept()).toEqual(['kept', 'flaky', 'deleted', 'unsaved']);
+    });
+
+    it('reports the publish that failed, not the save that failed after it', async () => {
+        mkdirSync(join(dir, `mqtt_published_items.json.${process.pid}.tmp`));
+        publish.mockImplementation(async (topic: string, message: string, options?: { retain?: boolean }) => {
+            if (topic === getCategoriesDiscoveryTopic(PREFIX, 'homeassistant'))
+                throw new Error('Connection closed');
+
+            await record(topic, message, options);
+        });
+
+        await expect(syncMQTT()).rejects.toThrow('Failed to publish categories');
+
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Failed to save published items'));
     });
 
     it.each(['playlists.json', 'track_links.json'])('removes nothing when %s cannot be read', async file => {
