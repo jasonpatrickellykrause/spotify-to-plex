@@ -128,12 +128,13 @@ async function runMQTT() {
             updateSyncTypeProgress('mqtt', i + 1, savedItems.length);
 
             const itemLog = putLog(`mqtt_${item.id}`, item.title);
+            // The entity a publish is sending: its config may reach the broker before the state fails,
+            // so it is kept even when the last run had no entry for it
+            let attempted: PublishedItem | undefined;
             // A failure that may pass - Plex down or slow, the broker refusing one publish - keeps the
             // entity Home Assistant already has, rather than the cleanup below deleting it. Only an
             // item Plex says it no longer has is gone for good.
-            // attempted: the entity a failed publish was sending. Its config may have reached the broker
-            // before the state publish failed, so a new entity is recorded too, or no later run clears it.
-            const keepUnlessGone = (error: unknown, attempted?: PublishedItem) => {
+            const keepUnlessGone = (error: unknown) => {
                 if (error instanceof PlexItemMissingError)
                     return;
 
@@ -141,7 +142,6 @@ async function runMQTT() {
                 if (kept)
                     currentPublished.push(kept);
             };
-            let attempted: PublishedItem | undefined;
 
             // Home Assistant plays as the Plex owner, who can't see a playlist made as a Home user: skipped
             // before its label is counted, and its old entity is removed by the cleanup below
@@ -179,19 +179,18 @@ async function runMQTT() {
 
                 // Build entity
                 const entity = buildEntity(item, plexId, plexMetadata.image || '');
+                const published: PublishedItem = {
+                    id: entity.id,
+                    entity_id: createEntityId(entity.id, mqttConfig.topicPrefix),
+                    category: entity.category,
+                };
 
                 // Publish entity or collect for dry-run
                 if (isDryRun) {
                     // Collect entity data for manifest
-                    const entityId = createEntityId(entity.id, mqttConfig.topicPrefix);
-                    const discoveryTopic = createDiscoveryTopic(entityId, mqttConfig.discoveryPrefix);
+                    const discoveryTopic = createDiscoveryTopic(published.entity_id, mqttConfig.discoveryPrefix);
                     const stateTopic = createStateTopic(entity.id, mqttConfig.topicPrefix);
 
-                    const published = {
-                        id: entity.id,
-                        entity_id: entityId,
-                        category: entity.category,
-                    };
                     dryRunEntities.push({ entity, discoveryTopic, stateTopic, published });
                     currentPublished.push(published);
                     console.log(`[DRY-RUN] Would publish: ${item.title} [${item.type}] (${item.label})`);
@@ -199,9 +198,9 @@ async function runMQTT() {
                 }
 
                 if (publisher) {
-                    attempted = { id: entity.id, entity_id: createEntityId(entity.id, mqttConfig.topicPrefix), category: entity.category };
-                    const publishedItem = await publisher.publishEntity(entity);
-                    currentPublished.push(publishedItem);
+                    attempted = published;
+                    await publisher.publishEntity(entity);
+                    currentPublished.push(published);
                     console.log(`[MQTT] Published: ${item.title} [${item.type}] (${item.label})`);
                 }
 
@@ -232,7 +231,7 @@ async function runMQTT() {
                 console.error(`[MQTT] Error publishing "${item.title}": ${message}`);
                 logError(itemLog, `Failed to publish: ${message}`);
                 errorCount++;
-                keepUnlessGone(error, attempted);
+                keepUnlessGone(error);
             }
         }
 
