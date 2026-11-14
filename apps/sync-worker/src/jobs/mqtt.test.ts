@@ -1,17 +1,21 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { manifest } = vi.hoisted(() => ({ manifest: vi.fn() }));
 vi.mock('@spotify-to-plex/plex-config/functions/getSettings', () => ({ getSettings: async () => ({ id: 'machine', uri: 'http://plex.test:32400', token: 'owner-server' }) }));
 vi.mock('@spotify-to-plex/plex-music-search/functions/getById', () => ({ getById: async () => ({ image: '/thumb' }) }));
-vi.mock('../services/mqtt/writeDryRunManifest', () => ({ writeDryRunManifest: manifest }));
 
 const { syncMQTT } = await import('./mqtt');
 
+type Manifest = {
+    entities: { entity: { name: string }; discoveryTopic: string; stateTopic: string; published: unknown }[];
+    categories: { list: string[] };
+};
+
 let dir: string;
 const write = (name: string, data: unknown) => { writeFileSync(join(dir, name), JSON.stringify(data)) };
+const manifest = () => JSON.parse(readFileSync(join(dir, 'mqtt_dry_run_manifest.json'), 'utf8')) as Manifest;
 
 beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'mqtt-job-'));
@@ -19,7 +23,6 @@ beforeEach(() => {
     process.env.MQTT_DRY_RUN = 'true';
     process.env.MQTT_BROKER_URL = 'mqtt://broker.test';
     process.env.MQTT_TOPIC_PREFIX = 'test_prefix';
-    manifest.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => { /* expected */ });
 });
 
@@ -45,22 +48,30 @@ describe('syncMQTT', () => {
 
         await syncMQTT();
 
-        expect(manifest).toHaveBeenCalledTimes(1);
-        const [, entities, categories] = manifest.mock.calls[0] ?? [];
-        expect(entities.map((item: { entity: { title?: string, name?: string } }) => item.entity.title ?? item.entity.name)).toEqual(['Mine']);
+        const { entities, categories } = manifest();
+        expect(entities.map(item => item.entity.name)).toEqual(['Mine']);
         expect(categories.list).toEqual(['Dean']);
     });
 
     it("lists each entity's topics and saved record in the dry-run manifest", async () => {
-        write('spotify_saved_items.json', [{ type: 'plex-media', id: 'Mix-1', title: 'Mix', uri: '/library/metadata/7', label: 'Mood' }]);
+        write('spotify_saved_items.json', [
+            { type: 'plex-media', id: 'Mix-1', title: 'Mix', uri: '/library/metadata/7', label: 'Mood' },
+            { type: 'plex-media', id: 'Party', title: 'Party', uri: '/library/metadata/8', label: 'Dance' }
+        ]);
 
         await syncMQTT();
 
-        const [, entities] = manifest.mock.calls[0] ?? [];
-        expect(entities.map(({ discoveryTopic, stateTopic, published }: Record<string, unknown>) => ({ discoveryTopic, stateTopic, published }))).toEqual([{
-            discoveryTopic: 'homeassistant/sensor/test_prefix_item_mix1/config',
-            stateTopic: 'test_prefix/items/Mix-1/state',
-            published: { id: 'Mix-1', entity_id: 'sensor.test_prefix_item_mix1', category: 'Mood' },
-        }]);
+        expect(manifest().entities.map(({ discoveryTopic, stateTopic, published }) => ({ discoveryTopic, stateTopic, published }))).toEqual([
+            {
+                discoveryTopic: 'homeassistant/sensor/test_prefix_item_mix1/config',
+                stateTopic: 'test_prefix/items/Mix-1/state',
+                published: { id: 'Mix-1', entity_id: 'sensor.test_prefix_item_mix1', category: 'Mood' },
+            },
+            {
+                discoveryTopic: 'homeassistant/sensor/test_prefix_item_party/config',
+                stateTopic: 'test_prefix/items/Party/state',
+                published: { id: 'Party', entity_id: 'sensor.test_prefix_item_party', category: 'Dance' },
+            }
+        ]);
     });
 });

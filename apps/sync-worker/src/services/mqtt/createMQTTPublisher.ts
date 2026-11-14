@@ -12,7 +12,7 @@ import { buildCategoriesEntity } from './buildCategoriesEntity';
 import { createCategoriesDiscoveryConfig } from './createCategoriesDiscoveryConfig';
 import { getCategoriesDiscoveryTopic } from './getCategoriesDiscoveryTopic';
 import { getCategoriesStateTopic } from './getCategoriesStateTopic';
-import { MQTTEntity, PublishedItem } from './types';
+import { MQTTEntity } from './types';
 
 type MQTTClient = {
     publish: (topic: string, message: string, options?: { qos: 0 | 1 | 2; retain: boolean }) => Promise<void>;
@@ -51,36 +51,10 @@ export function createMQTTPublisher(client: MQTTClient, topicPrefix: string, dis
                 qos: 1,
                 retain: true,
             });
-
-            return {
-                id: entity.id,
-                entity_id: entityId,
-                category: entity.category,
-            };
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             throw new Error(`Failed to publish entity ${entity.id}: ${message}`);
         }
-    };
-
-    /**
-   * Publish multiple entities
-   */
-    const publishEntities = async (entities: MQTTEntity[]) => {
-        const published: PublishedItem[] = [];
-
-        for (const entity of entities) {
-            try {
-                const item = await publishEntity(entity);
-                published.push(item);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : 'Unknown error';
-                console.error(`[MQTT] Failed to publish entity: ${message}`);
-                // Continue with next entity
-            }
-        }
-
-        return published;
     };
 
     /**
@@ -149,7 +123,6 @@ export function createMQTTPublisher(client: MQTTClient, topicPrefix: string, dis
 
     return {
         publishEntity,
-        publishEntities,
         publishCategories,
         removeEntity,
         removeEntities,
