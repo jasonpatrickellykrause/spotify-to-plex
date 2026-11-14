@@ -27,13 +27,11 @@ reviews:
     - "!**/dist/**"
     - "!**/.next/**"
     - "!**/*.png"
-    # Not used on this install (Lidarr does the downloading; no MQTT broker; no saved albums)
+    # Not used on this install (Lidarr does the downloading; no saved albums)
     - "!packages/tidal-music-search/**"
     - "!packages/slskd-music-search/**"
     - "!apps/sync-worker/src/jobs/albums.ts"
-    - "!apps/sync-worker/src/jobs/mqtt.ts"
     - "!apps/sync-worker/src/jobs/slskd.ts"
-    - "!apps/sync-worker/src/services/mqtt/**"
     - "!apps/sync-worker/src/utils/findMissingTidal*"
     - "!apps/web/pages/api/slskd/**"
     - "!apps/web/pages/api/tidal/**"
