@@ -36,11 +36,10 @@ export function loadPreviousItems(): PublishedItem[] {
             return parsed as PublishedItem[];
         }
 
-        return [];
+        throw new Error('not a list');
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
-        console.warn(`[MQTT] Failed to load previous items: ${message}`);
-
-        return [];
+        // Not empty: the cleanup would forget every entity published before, and the save would overwrite the list
+        throw new Error(`Failed to load mqtt_published_items.json: ${message}`);
     }
 }

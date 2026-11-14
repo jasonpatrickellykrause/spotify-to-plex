@@ -14,6 +14,7 @@ export function savePublishedItems(items: PublishedItem[]) {
         writeJsonFileAtomic(publishedItemsPath, items, 2);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`[MQTT] Failed to save published items: ${message}`);
+        // Not "saved": the next run could not clear what this one published
+        throw new Error(`Failed to save published items: ${message}`);
     }
 }

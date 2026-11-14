@@ -57,7 +57,16 @@ export function createMQTTClient(config: MQTTConfig) {
             // A broker that drops the socket before answering only closes it (a silent one gets a
             // "connack timeout" error); with reconnecting off, nothing else would settle this promise
             connecting.on('close', () => {
-                fail(new Error('Connection to the MQTT broker closed before it was established'));
+                if (!settled) {
+                    fail(new Error('Connection to the MQTT broker closed before it was established'));
+
+                    return;
+                }
+
+                // mqtt.js keeps unacknowledged QoS 1 publishes for a reconnect that is off here: a forced
+                // end fails them, where they would otherwise wait for ever and hold the job's lock
+                client = null;
+                connecting.end(true);
             });
         });
     };

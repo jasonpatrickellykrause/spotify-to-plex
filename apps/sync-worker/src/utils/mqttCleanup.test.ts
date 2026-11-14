@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,7 +29,9 @@ const PREFIX = 'spotify_to_plex';
 const IDS = ['kept', 'flaky', 'deleted', 'unsaved', 'fresh'];
 // A clear left unretained does not remove what the broker holds
 const cleared = (topic: string, retained = false) => published.some(item => item.topic === topic && item.message === '' && (!retained || item.retain === true));
-const configCleared = (id: string, retained?: boolean) => cleared(createDiscoveryTopic(createEntityId(id, PREFIX), 'homeassistant'), retained);
+const configTopic = (id: string) => createDiscoveryTopic(createEntityId(id, PREFIX), 'homeassistant');
+const configCleared = (id: string, retained?: boolean) => cleared(configTopic(id), retained);
+const sent = () => published.filter(item => item.message !== '' && item.retain === true).map(item => item.topic);
 const stateCleared = (id: string, retained?: boolean) => cleared(createStateTopic(id, PREFIX), retained);
 
 // Removing an entity clears its retained discovery config and its state; any clear alone counts as removing it
@@ -116,6 +118,8 @@ describe('syncMQTT cleanup', () => {
 
         await syncMQTT();
 
+        // Its config went out, then its state publish threw
+        expect(sent()).toEqual(expect.arrayContaining([configTopic('fresh'), createStateTopic('fresh', PREFIX)]));
         expect(kept()).toEqual(['kept', 'fresh']);
 
         // Unsaved before the next run: its retained config is cleared
@@ -127,6 +131,68 @@ describe('syncMQTT cleanup', () => {
 
         expect(removed()).toEqual(['fresh']);
         expect(kept()).toEqual(['kept']);
+    });
+
+    it('saves the list when a publish after the items fails, and stops the run', async () => {
+        write('spotify_saved_items.json', [saved('kept', 1), saved('fresh', 4)]);
+        write('mqtt_published_items.json', [previous('kept'), previous('unsaved')]);
+        // The broker is gone from fresh's state publish on, the categories publish included
+        let down = false;
+        publish.mockImplementation(async (topic: string, message: string, options?: { retain?: boolean }) => {
+            if (topic === createStateTopic('fresh', PREFIX))
+                down = true;
+
+            if (down)
+                throw new Error('Connection closed');
+
+            await record(topic, message, options);
+        });
+
+        await expect(syncMQTT()).rejects.toThrow('Failed to publish categories');
+
+        expect(removed()).toEqual([]);
+        expect(kept()).toEqual(['kept', 'fresh', 'unsaved']);
+    });
+
+    it('keeps listing an entity whose clear failed, so the next run clears it', async () => {
+        write('spotify_saved_items.json', [saved('kept', 1)]);
+        write('mqtt_published_items.json', [previous('kept'), previous('unsaved')]);
+        publish.mockImplementation(async (topic: string, message: string, options?: { retain?: boolean }) => {
+            if (topic === createStateTopic('unsaved', PREFIX) && message === '')
+                throw new Error('publish timed out');
+
+            await record(topic, message, options);
+        });
+
+        await syncMQTT();
+
+        expect(kept()).toEqual(['kept', 'unsaved']);
+
+        published.length = 0;
+        publish.mockImplementation(record);
+
+        await syncMQTT();
+
+        expect(removed()).toEqual(['unsaved']);
+        expect(kept()).toEqual(['kept']);
+    });
+
+    it('stops the run and leaves the list alone when the list cannot be read', async () => {
+        writeFileSync(join(dir, 'mqtt_published_items.json'), '{ half written');
+
+        await expect(syncMQTT()).rejects.toThrow('Failed to load mqtt_published_items.json');
+
+        expect(published).toEqual([]);
+        expect(readFileSync(join(dir, 'mqtt_published_items.json'), 'utf8')).toBe('{ half written');
+    });
+
+    it('fails the run when the list cannot be saved', async () => {
+        // A directory where the atomic write puts its temp file
+        mkdirSync(join(dir, `mqtt_published_items.json.${process.pid}.tmp`));
+
+        await expect(syncMQTT()).rejects.toThrow('Failed to save published items');
+
+        expect(kept()).toEqual(['kept', 'flaky', 'deleted', 'unsaved']);
     });
 
     it.each(['playlists.json', 'track_links.json'])('removes nothing when %s cannot be read', async file => {

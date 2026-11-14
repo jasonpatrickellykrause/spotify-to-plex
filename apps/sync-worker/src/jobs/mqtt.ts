@@ -243,18 +243,25 @@ async function runMQTT() {
             stateTopic: getCategoriesStateTopic(mqttConfig.topicPrefix),
         };
 
-        if (categories.size > 0 && publisher)
-            await publisher.publishCategories(categoriesArray);
-
-        // Cleanup removed entities
+        // Cleanup removed entities: one stays listed until its clear goes through, as the broker still holds it
         const toRemove = findItemsToRemove(previouslyPublished, currentPublished);
-        if (toRemove.length > 0) {
-            if (isDryRun) {
-                console.log(`[DRY-RUN] Would remove ${toRemove.length} unused entities`);
-            } else if (publisher) {
-                console.log(`[MQTT] Removing ${toRemove.length} unused entities...`);
-                await publisher.removeEntities(toRemove);
+        let uncleared = new Set(toRemove);
+        try {
+            if (categories.size > 0 && publisher)
+                await publisher.publishCategories(categoriesArray);
+
+            if (toRemove.length > 0) {
+                if (isDryRun) {
+                    console.log(`[DRY-RUN] Would remove ${toRemove.length} unused entities`);
+                } else if (publisher) {
+                    console.log(`[MQTT] Removing ${toRemove.length} unused entities...`);
+                    uncleared = new Set(await publisher.removeEntities(toRemove));
+                }
             }
+        } finally {
+            // Saved when a publish above fails too: this run's entities are on the broker already
+            if (!isDryRun)
+                savePublishedItems([...currentPublished, ...previouslyPublished.filter(item => item?.id && uncleared.has(item.id))]);
         }
 
         // Save or generate manifest
@@ -274,10 +281,6 @@ async function runMQTT() {
                 }
             );
         } else {
-            // Save current published items
-            savePublishedItems(currentPublished);
-
-            // Summary
             console.log(`[MQTT] Successfully published ${successCount} items (${countByType.playlists} playlists, ${countByType.albums} albums, ${countByType['plex-media']} plex media)`);
         }
 

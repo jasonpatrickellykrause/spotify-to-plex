@@ -106,19 +106,28 @@ export function createMQTTPublisher(client: MQTTClient, topicPrefix: string, dis
                 qos: 1,
                 retain: true,
             });
+
+            return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             console.error(`[MQTT] Failed to remove entity ${itemId}: ${message}`);
+
+            return false;
         }
     };
 
     /**
-   * Remove multiple entities
+   * Remove multiple entities; returns the ids whose clear failed, which the broker may still hold
    */
     const removeEntities = async (itemIds: string[]) => {
+        const failed: string[] = [];
+
         for (const itemId of itemIds) {
-            await removeEntity(itemId);
+            if (!await removeEntity(itemId))
+                failed.push(itemId);
         }
+
+        return failed;
     };
 
     return {

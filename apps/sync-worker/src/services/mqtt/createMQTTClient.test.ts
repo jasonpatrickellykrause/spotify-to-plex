@@ -54,7 +54,7 @@ describe('createMQTTClient connect', () => {
         await expect(connecting).rejects.toThrow('closed before it was established');
     });
 
-    it('ignores a close after it connected', async () => {
+    it('ends the client when the connection closes after it connected, so later publishes fail', async () => {
         const client = createMQTTClient(config);
         const connecting = client.connect();
         fake.emit('connect');
@@ -62,6 +62,7 @@ describe('createMQTTClient connect', () => {
 
         fake.emit('close');
 
-        expect(fake.end).not.toHaveBeenCalled();
+        expect(fake.end).toHaveBeenCalledWith(true);
+        await expect(client.publish('topic', 'message')).rejects.toThrow('MQTT client not connected');
     });
 });
